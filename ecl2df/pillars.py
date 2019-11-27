@@ -11,37 +11,81 @@ from __future__ import absolute_import
 import sys
 import logging
 import argparse
-import fnmatch
-import datetime
-import dateutil.parser
-
-import numpy as np
-import pandas as pd
 
 import ecl2df
-from ecl.eclfile import EclFile
-from .eclfiles import EclFiles
 
 
-def df(eclfiles, rstdates=None):
+def df(eclfiles, region=None, rstdate=None):
     """Produce a dataframe with pillar information
 
-    This is the "main" function for Python API users"""
-    grid_df = ecl2df.grid.df(eclfiles, rstdates=rstdates)
-    # todo: only select SGAS/SWAT from rst vectors
+    This is the "main" function for Python API users
+    Produces a dataframe with data for each I-J combination
+    (in the column PILLAR), and if a region parameter is
+    supplied, also pr. region.
 
-    gridgeom = gridgeometry2df(eclfiles)
-    initdf = init2df(eclfiles, vectors=vectors)
-    rst_df = None
-    if rstdates:
-        rst_df = rst2df(eclfiles, rstdates)
-    grid_df = merge_gridframes(gridgeom, initdf, rst_df)
-    if dropconstants:
-        # Note: Ambigous object names, bool vs function
-        grid_df = ecl2df.grid.dropconstants(grid_df)
+    PORV is the summed porevolume of the pillar (in the region),
+    VOLUME is bulk volume, and PORO is porevolume weighted porosity
 
+    Args:
+        region (str): A parameter the pillars will be split
+            on. Typically EQLNUM or FIPNUM.
+        rstdate (str): Date for which restart data
+            is to be extracted. The string can
+            be in ISO-format, or one of the mnenomics
+            'first' or 'last'.
+    """
+    if isinstance(rstdate, list):
+        raise ValueError("Lists of rstdates not supported for pillars")
 
-    return grid_df
+    grid_df = ecl2df.grid.df(eclfiles, rstdates=rstdate)
+
+    grid_df["PILLAR"] = grid_df["I"].astype(str) + "-" + grid_df["J"].astype(str)
+
+    groupbies = ["PILLAR"]
+    if region:
+        if region not in grid_df:
+            logging.warning("Region parameter %s not found, ignored", region)
+        else:
+            groupbies.append(region)
+            grid_df[region] = grid_df[region].astype(int)
+
+    if "SWAT" in grid_df and "SGAS" in grid_df:
+        grid_df["SOIL"] = 1 - grid_df["SWAT"] - grid_df["SGAS"]
+    if "SWAT" in grid_df and "SGAS" not in grid_df:
+        # Two-phase oil-water
+        grid_df["SOIL"] = 1 - grid_df["SWAT"]
+        # (or it could be two-phase water-gas, but then the SOIL would mean the same)
+
+    if "SWAT" in grid_df:
+        grid_df["WATVOL"] = grid_df["SWAT"] * grid_df["PORV"]
+    if "SGAS" in grid_df:
+        grid_df["GASVOL"] = grid_df["SGAS"] * grid_df["PORV"]
+    if "SOIL" in grid_df:
+        grid_df["OILVOL"] = grid_df["SOIL"] * grid_df["PORV"]
+
+    aggregators = {
+        "VOLUME": "sum",
+        "PORV": "sum",
+        "PERMX": "mean",
+        "PERMY": "mean",
+        "PERMZ": "mean",
+        "X": "mean",
+        "Y": "mean",
+        "Z": "mean",
+        "WATVOL": "sum",
+        "GASVOL": "sum",
+        "OILVOL": "sum",
+    }
+    aggregators = {key: aggregators[key] for key in aggregators if key in grid_df}
+
+    grouped = (
+        grid_df[list(aggregators.keys()) + groupbies]
+        .groupby(groupbies)
+        .agg(aggregators)
+    ).reset_index()
+    # make poro from porv and volume
+
+    return grouped.reset_index()
 
 
 def fill_parser(parser):
@@ -77,21 +121,11 @@ def fill_parser(parser):
         default="",
     )
     parser.add_argument(
-        "--rststride",
-        type=int,
-        default=1,
-        help=(
-            "Number of RST reports to skip. "
-            "Use a very large number "
-            "to get first and last RST report."
-        ),
-    )
-    parser.add_argument(
         "-o",
         "--output",
         type=str,
         help="Name of output csv file.",
-        default="eclgrid.csv",
+        default="pillars.csv",
     )
     parser.add_argument(
         "--dropconstants",
@@ -110,21 +144,22 @@ def main():
     )
     parser = argparse.ArgumentParser()
     parser = fill_parser(parser)
-    args = parser.parse_args()
+    pillarstats_main(parser.parse_args())
 
 
 def pillarstats_main(args):
     """This is the command line API"""
     if args.verbose:
         logging.basicConfig(level=logging.INFO)
-    df = df(eclfiles, args)
+    eclfiles = ecl2df.EclFiles(args.DATAFILE)
+    dframe = df(eclfiles, region=args.region, rstdate=args.rstdate)
 
     if args.output == "-":
         # Ignore pipe errors when writing to stdout.
         from signal import signal, SIGPIPE, SIG_DFL
 
         signal(SIGPIPE, SIG_DFL)
-        df.to_csv(sys.stdout, index=False)
+        dframe.to_csv(sys.stdout, index=False)
     else:
-        df.to_csv(args.output, index=False)
+        dframe.to_csv(args.output, index=False)
         print("Wrote to " + args.output)

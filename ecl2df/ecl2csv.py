@@ -18,6 +18,7 @@ from ecl2df import (
     equil,
     gruptree,
     rft,
+    pillars,
     satfunc,
     summary,
     trans,
@@ -80,9 +81,8 @@ def get_parser():
             "and contacts"
         ),
     )
-    pillars.fill_parser(trans_parser)
+    pillars.fill_parser(pillars_parser)
     pillars_parser.set_defaults(func=pillars.pillarstats_main)
-
 
     rft_parser = subparsers.add_parser(
         "rft",
