@@ -25,6 +25,10 @@ def df(eclfiles, region=None, rstdate=None):
 
     PORV is the summed porevolume of the pillar (in the region),
     VOLUME is bulk volume, and PORO is porevolume weighted porosity
+    PERM columns contain unweighted value averages, use with caution.
+
+    If a restart date is picked, then SWAT and SGAS will
+    be used to compute volumes pr. phase, WATVOL, OILVOL and GASVOL.
 
     Args:
         region (str): A parameter the pillars will be split
@@ -83,9 +87,10 @@ def df(eclfiles, region=None, rstdate=None):
         .groupby(groupbies)
         .agg(aggregators)
     ).reset_index()
-    # make poro from porv and volume
+    if "PORV" and "VOLUME" in grouped:
+        grouped["PORO"] = grouped["PORV"] / grouped["VOLUME"]
 
-    return grouped.reset_index()
+    return grouped
 
 
 def fill_parser(parser):
