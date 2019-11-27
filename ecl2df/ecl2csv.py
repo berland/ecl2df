@@ -71,6 +71,19 @@ def get_parser():
     trans.fill_parser(trans_parser)
     trans_parser.set_defaults(func=trans.trans2df_main)
 
+    pillars_parser = subparsers.add_parser(
+        "pillars",
+        help="Compute cornerpoint pillar data",
+        description=(
+            "Compute statistics pr. pillar in a cornerpoint grid, "
+            "in addition pr a region parameter. Volumetrics, in-place, "
+            "and contacts"
+        ),
+    )
+    pillars.fill_parser(trans_parser)
+    pillars_parser.set_defaults(func=pillars.pillarstats_main)
+
+
     rft_parser = subparsers.add_parser(
         "rft",
         help=("Extract RFT data from Eclipse binary output files."),
