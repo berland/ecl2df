@@ -98,6 +98,16 @@ def df(
     vectors = existing_vectors
     transrows = []
     logging.info("Building transmissibility dataframe")
+    if not onlykdir:
+        tranx = pd.DataFrame(grid_df[grid_df["TRANX"] > 0][['I', 'J', 'K', 'TRANX']])
+        tranx.rename(columns={'I': 'I1', 'J': 'J1', "K":"K1"}, inplace=True)
+        tranx["I2"] = tranx["I1"] + 1
+        tranx["J2"] = tranx["J1"]
+        tranx["K2"] = tranx["K1"]
+        tranx["DIR"] = 'I'
+    else:
+        tranx = pd.DataFrame()
+
     for ijk, row in grid_df.iterrows():
         if abs(row["TRANX"]) > 0 and not onlykdir:
             transrow = [
