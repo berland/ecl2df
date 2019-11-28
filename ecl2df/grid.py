@@ -326,12 +326,21 @@ def init2df(eclfiles, vectors=None):
 def df(eclfiles, vectors="*", dropconstants=False, rstdates=None):
     """Produce a dataframe with grid information
 
-    This is the "main" function for Python API users"""
+    This is the "main" function for Python API users
+
+    Args:
+        eclfiles (EclFiles): Handle to an Eclipse case
+        vectors (str or list): Vectors to include, wildcards
+            supported. String argument. Used to match both
+            INIT vectors and RESTART vectors.
+        rstdates (list, str or datetime): Restart dates to include
+            Mnenomics such as first and last are supported.
+    """
     gridgeom = gridgeometry2df(eclfiles)
     initdf = init2df(eclfiles, vectors=vectors)
     rst_df = None
     if rstdates:
-        rst_df = rst2df(eclfiles, rstdates)
+        rst_df = rst2df(eclfiles, rstdates, vectors=vectors)
     grid_df = merge_gridframes(gridgeom, initdf, rst_df)
     if dropconstants:
         # Note: Ambigous object names, bool vs function

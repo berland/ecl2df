@@ -32,7 +32,8 @@ def df(eclfiles, region=None, rstdate=None):
 
     Args:
         region (str): A parameter the pillars will be split
-            on. Typically EQLNUM or FIPNUM.
+            on. Typically EQLNUM or FIPNUM. Set to empty string
+            or None to avoid any region grouping.
         rstdate (str): Date for which restart data
             is to be extracted. The string can
             be in ISO-format, or one of the mnenomics
@@ -41,10 +42,12 @@ def df(eclfiles, region=None, rstdate=None):
     if isinstance(rstdate, list):
         raise ValueError("Lists of rstdates not supported for pillars")
 
+    # List of vectors we want, conservative in order to save memory and cputime:
+    vectors = [region, "POR*", "PERM*", "SWAT", "SGAS", "1OVERBO", "1OVERBG"]
     grid_df = ecl2df.grid.df(eclfiles, rstdates=rstdate)
 
     grid_df["PILLAR"] = grid_df["I"].astype(str) + "-" + grid_df["J"].astype(str)
-
+    logging.info("Computing pillar statistics")
     groupbies = ["PILLAR"]
     if region:
         if region not in grid_df:
@@ -67,6 +70,12 @@ def df(eclfiles, region=None, rstdate=None):
     if "SOIL" in grid_df:
         grid_df["OILVOL"] = grid_df["SOIL"] * grid_df["PORV"]
 
+    if "1OVERBO" in grid_df and "OILVOL" in grid_df:
+        grid_df["OILVOLSURF"] = grid_df["OILVOL"] * grid_df["1OVERBO"]
+
+    if "1OVERBG" in grid_df and "GASVOL" in grid_df:
+        grid_df["GASVOLSURF"] = grid_df["GASVOL"] * grid_df["1OVERBG"]
+
     aggregators = {
         "VOLUME": "sum",
         "PORV": "sum",
@@ -79,6 +88,8 @@ def df(eclfiles, region=None, rstdate=None):
         "WATVOL": "sum",
         "GASVOL": "sum",
         "OILVOL": "sum",
+        "GASVOLSURF": "sum",
+        "OILVOLSURF": "sum",
     }
     aggregators = {key: aggregators[key] for key in aggregators if key in grid_df}
 
@@ -87,7 +98,9 @@ def df(eclfiles, region=None, rstdate=None):
         .groupby(groupbies)
         .agg(aggregators)
     ).reset_index()
-    if "PORV" and "VOLUME" in grouped:
+
+    # Compute correct pillar averaged porosity (from bulk)
+    if "PORV" in grouped and "VOLUME" in grouped:
         grouped["PORO"] = grouped["PORV"] / grouped["VOLUME"]
 
     return grouped
@@ -105,7 +118,10 @@ def fill_parser(parser):
     )
     parser.add_argument(
         "--region",
-        help="Name of Eclipse region parameter for which to separate the computations",
+        help=(
+            "Name of Eclipse region parameter for which to separate the computations. "
+            "Set to empty string to have no grouping."
+        ),
         type=str,
         default="EQLNUM",
     )
@@ -158,7 +174,6 @@ def pillarstats_main(args):
         logging.basicConfig(level=logging.INFO)
     eclfiles = ecl2df.EclFiles(args.DATAFILE)
     dframe = df(eclfiles, region=args.region, rstdate=args.rstdate)
-
     if args.output == "-":
         # Ignore pipe errors when writing to stdout.
         from signal import signal, SIGPIPE, SIG_DFL
@@ -166,5 +181,6 @@ def pillarstats_main(args):
         signal(SIGPIPE, SIG_DFL)
         dframe.to_csv(sys.stdout, index=False)
     else:
+        logging.info("Writing output to disk")
         dframe.to_csv(args.output, index=False)
         print("Wrote to " + args.output)
