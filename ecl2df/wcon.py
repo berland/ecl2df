@@ -8,13 +8,15 @@ from __future__ import print_function
 from __future__ import absolute_import
 from __future__ import division
 
+import re
 import argparse
 import logging
 import datetime
 import pandas as pd
+import shlex
 
 from .eclfiles import EclFiles
-from .common import parse_opmio_date_rec, parse_opmio_deckrecord
+from .common import parse_opmio_date_rec, opmkeywords
 
 logging.basicConfig()
 logger = logging.getLogger(__name__)
@@ -24,6 +26,44 @@ WCONKEYS = ["WCONHIST", "WCONINJE", "WCONINJH", "WCONPROD"]
 
 # Rename some of the sunbeam columns:
 COLUMN_RENAMER = {"VFPTable": "VFP_TABLE", "Lift": "ALQ"}
+
+
+def unroll_defaulted_items(itemlist):
+    """
+    Expand list if list contains <int>* string elements
+
+    so ['a', '2*', 'b'] becomes ['a', '1*', '1*', 'b']
+    """
+    multipledefaults_matcher = re.compile(r"(\d+)\*")
+    unrolled_items = []
+    for item in itemlist:
+        def_matches = multipledefaults_matcher.match(item)
+        if def_matches:
+            unrolled_items.extend(["1*"] * int(def_matches.group(1)))
+        else:
+            unrolled_items.extend([item])
+    return unrolled_items
+
+
+def ad_hoc_wconparser(record, keyword):
+    """This is a band-aid solution awaiting support for UDA-values in opm-common
+
+    Replace this with common.parse_opmio_deckrecord when ready"""
+    assert isinstance(record, str)
+    rec_items = unroll_defaulted_items(shlex.split(record))
+    meta_and_data = zip(opmkeywords[keyword]["items"], rec_items)
+    rec_dict = {}
+    for item in meta_and_data:
+        itemname = item[0]["name"]
+        if itemname in COLUMN_RENAMER:
+            itemname = COLUMN_RENAMER[itemname]
+        if item[1] == "1*":
+            if "default" in item[0]:
+                rec_dict[itemname] = item[0]["default"]
+            else:
+                rec_dict[itemname] = None
+        rec_dict[itemname] = item[1]
+    return rec_dict
 
 
 def deck2wcondf(deck):
@@ -61,17 +101,9 @@ def deck2df(deck):
                 )
         elif kword.name in WCONKEYS:
             for rec in kword:  # Loop over the lines inside WCON* record
-                rec_data = {}
-                rec_data = parse_opmio_deckrecord(rec, kword.name)
+                rec_data = ad_hoc_wconparser(str(rec), kword.name)
                 rec_data["DATE"] = date
                 rec_data["KEYWORD"] = kword.name
-
-                for rec_key in RECORD_KEYS[kword.name]:
-                    try:
-                        if rec[rec_key]:
-                            rec_data[rec_key.upper()] = rec[rec_key][0]
-                    except ValueError:
-                        pass
                 wconrecords.append(rec_data)
 
         elif kword.name == "TSTEP":

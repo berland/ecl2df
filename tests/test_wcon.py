@@ -12,9 +12,21 @@ import pandas as pd
 
 from ecl2df import wcon, ecl2csv
 from ecl2df.eclfiles import EclFiles
+from ecl2df.wcon import unroll_defaulted_items
 
 TESTDIR = os.path.dirname(os.path.abspath(__file__))
 DATAFILE = os.path.join(TESTDIR, "data/reek/eclipse/model/2_R001_REEK-0.DATA")
+
+def test_unroller():
+    """Test that the defaults unroller is correct"""
+    assert len(unroll_defaulted_items(['3*'])) == 3
+    assert not len(unroll_defaulted_items(['0*']))
+    assert len(unroll_defaulted_items(['1*'])) == 1
+    assert len(unroll_defaulted_items(['99*'])) == 99
+    assert len(unroll_defaulted_items(['-1*'])) == 1
+    assert len(unroll_defaulted_items(['foo', '2*', 'bar'])) == 4
+    assert unroll_defaulted_items(['foo', '2*', 'bar'])[1] == "1*"
+    assert unroll_defaulted_items(['foo', '2*', 'bar'])[2] == "1*"
 
 
 def test_wcon2df():
